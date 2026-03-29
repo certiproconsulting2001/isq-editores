@@ -1279,14 +1279,6 @@ async function openEd(pid){
     var isCliente=CU.role==="cliente";
     var bpm=document.getElementById("bPhaseMgr");
     if(bpm) bpm.style.display=isC?"inline-block":"none";
-    // Hide all editor controls for client
-    var bDL=document.getElementById("bDL");
-    var bEW=document.getElementById("bEW");
-    var bSelDL=document.getElementById("bSelDL");
-    if(isCliente){
-      if(bDL) bDL.style.display="none";
-      // bEW shown based on phase downloadable - handled in setupWM
-    }
     // Init TinyMCE with fresh data
     initTiny(isC, p);
     renderPB(p); renderEA(p); renderCVP(p);
@@ -2379,110 +2371,102 @@ function loadGdocInfo(p){
   var isCliente = CU.role === "cliente";
   var bar = document.getElementById("gConnBar");
   var btnLink = document.getElementById("btnGLink");
-  var btnView = document.getElementById("btnGView");
   var btnOpen = document.getElementById("btnGOpen");
+  var btnView = document.getElementById("btnGView");
   var btnTiny = document.getElementById("btnGTiny");
-  var gStatus = document.getElementById("gStatus");
+  var gs = document.getElementById("gStatus");
 
   if(isCliente){
-    // CLIENT: completely hide bar, silently load doc
+    // CLIENT: hide Google Docs bar completely
+    // Client sees TinyMCE content via real-time polling
     if(bar) bar.style.display = "none";
-    if(curGdocId){
-      setTimeout(function(){ switchToGDocsCliente(); }, 400);
-    }
     return;
   }
 
-  // COLABORADOR / SUPERADMIN
+  // COLABORADOR: show bar with controls
   if(bar) bar.style.display = "flex";
-
-  // ALWAYS show vincular button for colaborador so they can link/change doc
   if(btnLink) btnLink.style.display = "inline-block";
-
+  
   if(curGdocId){
-    // Has doc - show all controls
-    if(gStatus) gStatus.textContent = "\uD83D\uDFE2 Google Docs vinculado";
-      // Add publish reminder
-
-    if(btnView) btnView.style.display = "inline-block";
+    if(gs) gs.textContent = "\uD83D\uDFE2 Google Doc vinculado";
     if(btnOpen) btnOpen.style.display = "inline-block";
-    // Auto-load Google Doc
-    setTimeout(function(){ switchToGDocs(); }, 400);
+    if(btnView) btnView.style.display = "none"; // Remove broken viewer
   } else {
-    // No doc yet
-    if(gStatus) gStatus.textContent = "\u26A0\uFE0F Sin Google Doc";
-    if(btnView) btnView.style.display = "none";
+    if(gs) gs.textContent = "\u26A0\uFE0F Sin Google Doc";
     if(btnOpen) btnOpen.style.display = "none";
-    // Show TinyMCE as fallback
-    var earea = document.querySelector(".earea");
-    var tiny = document.getElementById("eTB");
-    if(earea) earea.style.display = "";
-    if(tiny && CU.role==="colaborador") tiny.style.display = "flex";
+    if(btnView) btnView.style.display = "none";
   }
 }
 
 
 // ─── Client-specific Google Docs view ───
-function switchToGDocsCliente(){
+async function switchToGDocsCliente(){
   if(!curGdocId) return;
+  
   var frame = document.getElementById("gdocFrame");
   var iframe = document.getElementById("gdocIframe");
+  var panel = document.getElementById("gdocPanel");
   var earea = document.querySelector(".earea");
   var tiny = document.getElementById("eTB");
-  var eact = document.getElementById("eAct");
-  
+
   if(frame) frame.style.display = "flex";
   if(earea) earea.style.display = "none";
   if(tiny) tiny.style.display = "none";
   gdocMode = true;
 
-  dbGet("projects","id=eq."+curPid).then(function(ps){
+  // Load project to check phase permissions
+  try{
+    var ps = await dbGet("projects","id=eq."+curPid);
     var p = ps[0];
     var ph = (p.phases||[])[curPh];
     var phDl = ph ? ph.downloadable : false;
 
-    // Use embed URL - works for published/shared docs
-    // ?rm=minimal removes Google toolbar for clean embed
-    var viewerUrl2 = getDocEmbedUrl(curGdocId, "cliente");
-    var panel2 = document.getElementById("gdocPanel");
-    var iframe2 = document.getElementById("gdocIframe");
+    // CLIENT sees the document preview
+    // /preview works when doc is shared as "anyone with link can view"
+    var previewUrl = "https://docs.google.com/document/d/"+curGdocId+"/preview";
     
-    if(iframe2){
-      iframe2.style.display = "block";
-      if(panel2) panel2.style.display = "none";
-      iframe2.src = "about:blank";
-      setTimeout(function(){ iframe2.src = viewerUrl2; }, 200);
+    if(iframe){
+      if(panel) panel.style.display = "none";
+      iframe.style.display = "block";
+      iframe.src = previewUrl;
     }
 
-    // Watermark: show if NOT downloadable
+    // Watermark: visible if NOT downloadable
     var wm = document.getElementById("gdocWM");
-    if(wm) wm.style.display = phDl ? "none" : "block";
-    wm.style.pointerEvents = "none"; // never block clicks
+    if(wm){ 
+      wm.style.display = phDl ? "none" : "block";
+      wm.style.pointerEvents = "none";
+    }
 
-    // Download button: only if downloadable
+    // Download button
     var bew = document.getElementById("bEW");
     if(bew) bew.style.display = phDl ? "inline-block" : "none";
 
-    // Bottom action bar
+    // Action bar
+    var eact = document.getElementById("eAct");
     if(eact){
       eact.innerHTML = "";
       if(ph && ph.status === "review"){
         var ba = document.createElement("button");
-        ba.className = "bs bgn"; ba.textContent = "\u2705 Apruebo esta fase";
-        ba.onclick = clApr; eact.appendChild(ba);
+        ba.className = "bs bgn"; 
+        ba.textContent = "\u2705 Apruebo esta fase";
+        ba.onclick = clApr; 
+        eact.appendChild(ba);
         var bc = document.createElement("button");
-        bc.className = "bs br"; bc.textContent = "\u26A0\uFE0F Solicitar cambios";
-        bc.onclick = openChM; eact.appendChild(bc);
+        bc.className = "bs br"; 
+        bc.textContent = "\u26A0\uFE0F Solicitar cambios";
+        bc.onclick = openChM; 
+        eact.appendChild(bc);
       } else if(ph){
         var msgs = {
-          pending:"\u23F3 Esperando que el colaborador inicie...",
-          progress:"\u270F\uFE0F El colaborador est\u00e1 escribiendo en tiempo real...",
-          changes:"\u26A0\uFE0F El colaborador est\u00e1 atendiendo los cambios...",
+          pending:"\u23F3 El colaborador a\u00fan no ha iniciado...",
+          progress:"\u270F\uFE0F El colaborador est\u00e1 escribiendo...",
+          changes:"\u26A0\uFE0F Atendiendo cambios solicitados...",
           done:"\u2705 Fase completada"
         };
         var st = document.createElement("span");
         st.style.cssText = "font-size:12px;color:var(--g4)";
-        st.textContent = msgs[ph.status] || ph.status;
+        st.textContent = msgs[ph.status]||ph.status;
         eact.appendChild(st);
       }
       // Live indicator
@@ -2492,98 +2476,29 @@ function switchToGDocsCliente(){
       eact.appendChild(live);
     }
 
-    // Poll for updates every 5s - refresh iframe content and phase status  
+    // Poll phase status every 6s
     if(window._clientPollTimer) clearInterval(window._clientPollTimer);
     window._clientPollTimer = setInterval(async function(){
-      if(!curPid) return;
+      if(!curPid||!gdocMode) return;
       try{
-        var ps2 = await dbGet("projects","id=eq."+curPid);
-        var p2 = ps2[0];
-        var ph2 = (p2.phases||[])[curPh];
-        if(!ph2) return;
-        // Update phase status display without reloading iframe
+        var ps2=await dbGet("projects","id=eq."+curPid);
+        var p2=ps2[0];
         renderPB(p2);
-        // Check if downloadable status changed
-        if(ph2.downloadable !== phDl){
-          phDl = ph2.downloadable;
-          var wm2 = document.getElementById("gdocWM");
-          var bew2 = document.getElementById("bEW");
-          if(wm2) wm2.style.display = phDl ? "none" : "block";
-          if(bew2) bew2.style.display = phDl ? "inline-block" : "none";
-        }
-        // Refresh phase actions if status changed
-        if(ph2.status !== ph.status){
-          ph = ph2;
-          switchToGDocsCliente();
+        var ph2=(p2.phases||[])[curPh];
+        if(ph2&&ph2.status!==ph.status){ph=ph2;switchToGDocsCliente();}
+        if(ph2&&ph2.downloadable!==phDl){
+          phDl=ph2.downloadable;
+          var wm2=document.getElementById("gdocWM");
+          var bew2=document.getElementById("bEW");
+          if(wm2)wm2.style.display=phDl?"none":"block";
+          if(bew2)bew2.style.display=phDl?"inline-block":"none";
         }
       }catch(e){}
-    }, 5000);
-  }).catch(function(e){
-    console.error("switchToGDocsCliente error:", e);
-  });
-}
+    },6000);
 
-
-// ═══ GOOGLE DOCS EDITOR CONTROL ═══
-var curGdocId = null;
-var gdocMode = false; // false=TinyMCE, true=GoogleDocs
-
-function connectGoogle(){
-  googleSignIn(function(){
-    var u = ggUser;
-    var gi = document.getElementById("gUserInfo");
-    if(gi) gi.textContent = u ? u.email : "";
-    var btnConn = document.getElementById("btnGConn");
-    var btnOpen = document.getElementById("btnGOpen");
-    var btnView = document.getElementById("btnGView");
-    if(btnConn) btnConn.style.display = "none";
-    if(btnOpen) btnOpen.style.display = "inline-block";
-    if(btnView) btnView.style.display = "inline-block";
-    toast("✅ Google conectado", ggUser?ggUser.email:"", "ok");
-    // If we have a gdoc, load it
-    if(curGdocId) switchToGDocs();
-  });
-}
-
-function openInGDocs(){
-  if(!curGdocId){ toast("Sin documento","Este proyecto no tiene Google Doc.","w"); return; }
-  // Open in new tab - user can use Zotero here
-  window.open("https://docs.google.com/document/d/"+curGdocId+"/edit?usp=sharing","_blank");
-}
-
-async function switchToGDocs(){
-  if(!curGdocId){ 
-    toast("Sin Google Doc","Usa el bot\u00f3n Vincular Doc.","w"); 
-    return; 
+  }catch(e){
+    console.error("switchToGDocsCliente:", e);
   }
-  var frame = document.getElementById("gdocFrame");
-  var iframe = document.getElementById("gdocIframe");
-  var panel = document.getElementById("gdocPanel");
-  var tiny = document.getElementById("eTB");
-  var earea = document.querySelector(".earea");
-  var btnTiny = document.getElementById("btnGTiny");
-  var gs = document.getElementById("gStatus");
-  var btnOpen = document.getElementById("btnGOpen");
-
-  if(frame) frame.style.display = "flex";
-  if(earea) earea.style.display = "none";
-  if(tiny) tiny.style.display = "none";
-  if(btnTiny) btnTiny.style.display = "inline-block";
-  if(btnOpen) btnOpen.style.display = "inline-block";
-  gdocMode = true;
-
-  // /pub?embedded=true is the ONLY URL that works in iframe
-  var viewerUrl = getDocEmbedUrl(curGdocId, CU.role);
-  if(iframe){
-    if(panel) panel.style.display = "none";
-    iframe.style.display = "block";
-    iframe.src = "about:blank";
-    setTimeout(function(){ 
-      iframe.src = viewerUrl;
-      if(gs) gs.textContent = "\uD83D\uDFE2 Google Docs activo";
-    }, 300);
-  }
-  updateGdocWatermark();
 }
 
 >
